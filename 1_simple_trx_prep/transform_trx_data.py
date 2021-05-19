@@ -1,5 +1,4 @@
 import functools
-import itertools
 import logging
 import time
 from pathlib import Path
@@ -59,16 +58,39 @@ def load_and_prepare_clean_data(path: Union[Path, str]) -> pd.DataFrame:
     member and date. (Conveniently this is the alphabetical order.)
     """
     df = pd.read_parquet(path)
-    df["member"] = df["member"].astype("object")
-    df["device"] = df["device"].astype("category")
-    df["trx_type"] = df["trx_type"].astype("category")
+    for col in df.select_dtypes(include=["object", "string"]):
+        df[col] = df[col].astype("category")
     df.sort_values(["member", "date", "trx_type"], inplace=True)
 
     logger.info(
         f"DataFrame has {len(df):,.0f} rows "
         f"and includes data for {df['member'].nunique():,.0f} members."
     )
+    return df
 
+
+@logging_runtime
+def remove_redemtions_without_purchase(df: pd.DataFrame) -> pd.DataFrame:
+    """Identify and remove all `Redemption` trx that have
+    no purchase trx on the same date for the same member.
+    Return a copy of the original dataframe.
+    """
+    # Create a dataframe with invalid redemptions only
+    df_grouped = df.groupby(["member", "date"]).agg({"trx_type": str})
+    df_grouped = df_grouped[df_grouped["trx_type"].str.contains("Redemption")]
+    df_grouped = df_grouped[~df_grouped["trx_type"].str.contains("Purchase")]
+    df_grouped["trx_type"] = "Redemption"
+
+    # Use a merge with indicator to mark all invalid redemtions in the original df
+    df = pd.merge(
+        left=df.copy(),
+        right=df_grouped,
+        on=["member", "date", "trx_type"],
+        how="left",
+        indicator=True,
+    )
+    df = df[df["_merge"] == "left_only"]
+    df.drop(columns="_merge", inplace=True)
     return df
 
 
@@ -92,46 +114,49 @@ def create_basic_voucher_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _calculate_voucher_sums(v: pd.Series) -> np.ndarray:
+def _calculate_voucher_cumsums(voucher_all: pd.Series) -> np.ndarray:
     """Helper function to calculate the accumulated sum of
-    voucher "credit" a customer has at any given time. We cannot
-    kow about credit from earlier periods but we make sure that
-    the sum never becomes negative.
+    voucher "credit" a customer has at any given time. We do not 
+    know about the remaining credit from earlier periods, but we 
+    make sure that the cumsum never becomes negative.
     """
-    v_sum = np.array(list(itertools.accumulate(v)))
+    voucher_cumsum = np.cumsum(voucher_all)
     # Make sure that v_sum never has a negative value
-    v_min = np.min(v_sum)
+    v_min = np.min(voucher_all)
     if v_min < 0:
         top_up_value = v_min
-        v_sum = v_sum - top_up_value
-    return v_sum
+        voucher_cumsum = voucher_cumsum - top_up_value
+    return voucher_cumsum
 
 
 @logging_runtime
-def create_voucher_sum_col(df: pd.DataFrame) -> pd.DataFrame:
-    """Use a groupby "window function" to insert the
-    voucher sums into a new column "v_sum".
+def create_voucher_cumsum_col(df: pd.DataFrame) -> pd.DataFrame:
+    """Use a groupby "window function" to insert the cumulated 
+    voucher sums into a new column "voucher_cumsum".
     """
-    df = df.assign(
-        v_sum=df.groupby(["member"])["v"].transform(_calculate_voucher_sums)
+    df = df.copy()
+    df["voucher_cumsum"] = df.groupby(["member"])["voucher_all"].transform(
+        _calculate_voucher_cumsum
     )
-    df.drop("v", axis=1, inplace=True)
+    df.drop("voucher_all", axis=1, inplace=True)
     return df
 
 
 @logging_runtime
-def shift_and_drop_redemptions(df: pd.DataFrame) -> pd.DataFrame:
-    """Shift redemtion values in "v_r" column one row up, so they
+def shift_and_drop_redemptions(df):
+    """Shift redemtion values in "voucher_red" col one row up, so they
     end up in the row of the corresponing transaction. This makes
-    it possible to flag the respective transactions as ones with
-    redemption in a later step. Then delete all redemption rows, as
-    they are no longer needed.
+    it possible to flag the respective transactions as ones with 
+    a redemption in a later step. Then delete all "Redemption" trx,
+    as they are no longer needed.
     """
-    df = df.assign(v_r=df.groupby(["member"])["v_r"].shift(-1))
+    df = df.copy()
+    df["voucher_red"] = df.groupby(["member"])["voucher_red"].shift(-1)
     df = df[~df["trx_type"].isin(["Redemption"])]
-    df["v_r"] = df["v_r"].replace(np.nan, 0)
 
-    # Remove "Redemption" Category
+    # Fill the resulting NA values in the last row per member
+    df["voucher_red"] = df["voucher_red"].replace(np.nan, 0)
+    # Remove "Redemption" category from trx_type categories
     df["trx_type"].cat.remove_unused_categories(inplace=True)
     return df
 
