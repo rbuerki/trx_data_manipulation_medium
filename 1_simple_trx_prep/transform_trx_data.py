@@ -1,4 +1,5 @@
 import functools
+import itertools
 import logging
 import time
 from pathlib import Path
@@ -7,7 +8,7 @@ from typing import Union
 import numpy as np
 import pandas as pd
 
-PATH_IN = "data/1_trx_data_clean.feather"
+PATH_IN = "data/1_trx_data_clean.parquet"
 PATH_OUT = "data/2_trx_data_prepared.parquet"
 
 
@@ -24,7 +25,7 @@ def initialize_logger():
 
     # Create file handler
     fh = logging.FileHandler(
-        "prepare_data.log", "w", encoding=None, delay="true"
+        "transform_trx_data.log", "a", encoding=None, delay="true"
     )
     fh.setLevel(logging.DEBUG)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -70,57 +71,72 @@ def load_and_prepare_clean_data(path: Union[Path, str]) -> pd.DataFrame:
 
 
 @logging_runtime
-def remove_redemtions_without_purchase(df: pd.DataFrame) -> pd.DataFrame:
+def remove_redemptions_without_purchase(df: pd.DataFrame) -> pd.DataFrame:
     """Identify and remove all `Redemption` trx that have
     no purchase trx on the same date for the same member.
     Return a copy of the original dataframe.
     """
-    # Create a dataframe with invalid redemptions only
-    df_grouped = df.groupby(["member", "date"]).agg({"trx_type": str})
-    df_grouped = df_grouped[df_grouped["trx_type"].str.contains("Redemption")]
-    df_grouped = df_grouped[~df_grouped["trx_type"].str.contains("Purchase")]
-    df_grouped["trx_type"] = "Redemption"
+    df = df.copy()
 
-    # Use a merge with indicator to mark all invalid redemtions in the original df
-    df = pd.merge(
-        left=df.copy(),
-        right=df_grouped,
-        on=["member", "date", "trx_type"],
-        how="left",
-        indicator=True,
+    # Get a df each with all redemptions and all purchases
+    df_red = df[df["trx_type"] == "Redemption"]
+    df_pur = df[df["trx_type"] == "Purchase"]
+
+    # Use a merge to find all redemptions without  purchase on same / member
+    df_red_invalid = (
+        pd.merge(
+            df_red,
+            df_pur,
+            on=df_red.columns.tolist(),
+            how="outer",
+            indicator=True,
+        )
+        .query("_merge == 'left_only'")
+        .drop("_merge", axis=1)
     )
-    df = df[df["_merge"] == "left_only"]
-    df.drop(columns="_merge", inplace=True)
-    return df
+
+    # Use a second merge to eliminate all those invalid redemptions
+    df_valid = (
+        pd.merge(
+            df,
+            df_red_invalid,
+            how="outer",
+            on=df.columns.tolist(),
+            indicator=True,
+        )
+        .query("_merge == 'left_only'")
+        .drop("_merge", axis=1)
+    )
+
+    return df_valid.reset_index(drop=True)
 
 
 @logging_runtime
 def create_basic_voucher_cols(df: pd.DataFrame) -> pd.DataFrame:
-    """Create separate columns containing the values for
-    voucher activations ("v_a"), voucher redemptions ("v_r")
-    and all of them combined.
+    """Create 3 separate columns containing the values for 
+    voucher activations ("voucher_act"), voucher redemptions ("voucher_red")
+    and both of them combined (voucher_all).
     """
-    df["v_a"] = np.where(
-        (df["device"] == "Financial Voucher") & (df["value"] > 0),
-        df["value"],
-        0,
+    df = df.copy()
+    df["voucher_act"] = np.where(
+        (df["device"] == "Loyalty Voucher") & (df["value"] > 0), df["value"], 0
     )
-    df["v_r"] = np.where(
-        (df["device"] == "Financial Voucher") & (df["value"] < 0),
-        df["value"],
-        0,
+    df["voucher_red"] = np.where(
+        (df["device"] == "Loyalty Voucher") & (df["value"] < 0), df["value"], 0
     )
-    df["v"] = np.where(df["device"] == "Financial Voucher", df["value"], 0)
+    df["voucher_all"] = np.where(
+        df["device"] == "Loyalty Voucher", df["value"], 0
+    )
     return df
 
 
-def _calculate_voucher_cumsums(voucher_all: pd.Series) -> np.ndarray:
+def _calculate_voucher_cumsum(voucher_all: pd.Series) -> np.ndarray:
     """Helper function to calculate the accumulated sum of
     voucher "credit" a customer has at any given time. We do not 
     know about the remaining credit from earlier periods, but we 
     make sure that the cumsum never becomes negative.
     """
-    voucher_cumsum = np.cumsum(voucher_all)
+    voucher_cumsum = np.array(list(itertools.accumulate(voucher_all)))
     # Make sure that v_sum never has a negative value
     v_min = np.min(voucher_all)
     if v_min < 0:
@@ -166,13 +182,16 @@ def calculate_interval_activation_to_next_purchase(
     df: pd.DataFrame,
 ) -> pd.DataFrame:
     """Create a new col "delta_a" containing the interval from each
-    activation to the next purchase as int (for days). Values of
+    activation to the next purchase as int (n days). Values of
     all non-activation rows are set to NaN.
     """
-    df = df.assign(delta_a=df.groupby(["member"])["date"].diff(-1) * -1)
+    df = df.copy()
+    df["delta_a"] = df.groupby(["member"])["date"].diff(-1) * -1
 
     df["delta_a"] = np.where(
-        df["trx_type"] == "Activation", df["delta_a"].dt.days, np.NaN
+        df["trx_type"] == "Activation",
+        df["delta_a"].dt.days,  # convert timedelta to float
+        np.NaN,
     )
     return df
 
@@ -180,15 +199,16 @@ def calculate_interval_activation_to_next_purchase(
 @logging_runtime
 def calculate_purchase_interval(df: pd.DataFrame) -> pd.DataFrame:
     """Create a new col "delta_p" containing the interval from each
-    purchase to the next as int (for days). Values of all non-purchase
+    purchase to the next as int (n days). Values of all non-purchase
     rows are set to NaN.
     """
-    df = df.assign(
-        delta_p=df.groupby(["member", "trx_type"])["date"].diff(-1) * -1
-    )
+    df = df.copy()
+    df["delta_p"] = df.groupby(["member", "trx_type"])["date"].diff(-1) * -1
 
     df["delta_p"] = np.where(
-        df["trx_type"] == "Purchase", df["delta_p"].dt.days, np.NaN
+        df["trx_type"] == "Purchase",
+        df["delta_p"].dt.days,  # Convert timedelta to float
+        np.NaN,
     )
     return df
 
@@ -201,20 +221,25 @@ def flag_purchases_depending_on_vouchers(df: pd.DataFrame) -> pd.DataFrame:
     credit would have been available), "p_v_empty" = no voucher credit
     available.
     """
+    df = df.copy()
     df["p_v_red"] = np.where(
-        (df["trx_type"] == "Purchase") & (df["v_r"] < 0), 1, 0
-    )
+        (df["trx_type"] == "Purchase") & (df["voucher_red"] < 0), 1, 0
+    ).astype("bool")
+
     df["p_v_miss"] = np.where(
-        (df["trx_type"] == "Purchase") & (df["v_r"] == 0) & (df["v_sum"] > 0),
+        (
+            (df["trx_type"] == "Purchase")
+            & (df["voucher_red"] == 0)
+            & (df["voucher_cumsum"] > 0)
+        ),
         1,
         0,
-    )
-    df["p_v_empty"] = np.where(
-        (df["trx_type"] == "Purchase") & (df["v_sum"] == 0), 1, 0
-    )
+    ).astype("bool")
 
-    for col in ["p_v_red", "p_v_miss", "p_v_empty"]:
-        df[col] = df[col].astype("bool")
+    df["p_v_empty"] = np.where(
+        (df["trx_type"] == "Purchase") & (df["voucher_cumsum"] == 0), 1, 0
+    ).astype("bool")
+
     return df
 
 
@@ -262,8 +287,9 @@ def main(
 
     logger.info("Starting process ...")
     df = load_and_prepare_clean_data(path_in)
+    df = remove_redemptions_without_purchase(df)
     df = create_basic_voucher_cols(df)
-    df = create_voucher_sum_col(df)
+    df = create_voucher_cumsum_col(df)
     df = shift_and_drop_redemptions(df)
     df = calculate_interval_activation_to_next_purchase(df)
     df = calculate_purchase_interval(df)
@@ -271,7 +297,7 @@ def main(
     df = calculate_discount_pct(df)
     df = flag_purchases_depending_on_discounts(df)
     save_transformed_data(df, path_out)
-    logger.info("Job complete!")
+    logger.info("Job complete!\n")
 
 
 if __name__ == "__main__":
