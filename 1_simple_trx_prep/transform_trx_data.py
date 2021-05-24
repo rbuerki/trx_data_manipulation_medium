@@ -76,18 +76,18 @@ def remove_redemptions_without_purchase(df: pd.DataFrame) -> pd.DataFrame:
     no purchase trx on the same date for the same member.
     Return a copy of the original dataframe.
     """
-    df = df.copy()
+    df = df_orig.copy()
 
     # Get a df each with all redemptions and all purchases
-    df_red = df[df["trx_type"] == "Redemption"]
-    df_pur = df[df["trx_type"] == "Purchase"]
+    df_redemption = df[df["trx_type"] == "Redemption"].copy()
+    df_purchase = df[df["trx_type"] == "Purchase"][["member", "date"]].copy()
 
-    # Use a merge to find all redemptions without  purchase on same / member
+    # Use a merge to find all redemptions without a purchase on same date by same member
     df_red_invalid = (
         pd.merge(
-            df_red,
-            df_pur,
-            on=df_red.columns.tolist(),
+            df_redemption,
+            df_purchase,
+            on=["member", "date"],
             how="outer",
             indicator=True,
         )
@@ -100,8 +100,8 @@ def remove_redemptions_without_purchase(df: pd.DataFrame) -> pd.DataFrame:
         pd.merge(
             df,
             df_red_invalid,
-            how="outer",
             on=df.columns.tolist(),
+            how="outer",
             indicator=True,
         )
         .query("_merge == 'left_only'")
