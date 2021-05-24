@@ -25,7 +25,7 @@ def initialize_logger():
 
     # Create file handler
     fh = logging.FileHandler(
-        "transform_trx_data.log", "a", encoding=None, delay="true"
+        "transform_log.txt", mode="a", encoding=None, delay=True
     )
     fh.setLevel(logging.DEBUG)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -76,7 +76,7 @@ def remove_redemptions_without_purchase(df: pd.DataFrame) -> pd.DataFrame:
     no purchase trx on the same date for the same member.
     Return a copy of the original dataframe.
     """
-    df = df_orig.copy()
+    df = df.copy()
 
     # Get a df each with all redemptions and all purchases
     df_redemption = df[df["trx_type"] == "Redemption"].copy()
