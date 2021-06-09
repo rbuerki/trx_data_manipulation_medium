@@ -1,0 +1,30 @@
+2021-05-24 18:34:49,108 - INFO - Starting process ...
+2021-05-24 18:34:50,849 - INFO - DataFrame has 1,612,298 rows and includes data for 129,629 members.
+2021-05-24 18:34:50,859 - INFO - Calling load_and_prepare_clean_data - Elapsed time (s): 1.75
+2021-05-24 18:34:53,826 - INFO - Calling remove_redemptions_without_purchase - Elapsed time (s): 2.97
+2021-05-24 18:34:53,883 - INFO - Calling create_basic_voucher_cols - Elapsed time (s): 0.05
+2021-05-24 18:35:30,152 - INFO - Calling create_voucher_cumsum_col - Elapsed time (s): 36.26
+2021-05-24 18:35:30,380 - INFO - Calling shift_and_drop_redemptions - Elapsed time (s): 0.22
+2021-05-24 18:35:51,285 - INFO - Calling calculate_interval_activation_to_next_purchase - Elapsed time (s): 20.90
+2021-05-24 18:36:31,663 - INFO - Calling calculate_purchase_interval - Elapsed time (s): 40.37
+2021-05-24 18:36:31,719 - INFO - Calling flag_purchases_depending_on_vouchers - Elapsed time (s): 0.05
+2021-05-24 18:36:31,747 - INFO - Calling calculate_discount_pct - Elapsed time (s): 0.01
+2021-05-24 18:36:31,846 - INFO - Calling flag_purchases_depending_on_discounts - Elapsed time (s): 0.10
+2021-05-24 18:36:32,516 - INFO - Calling save_transformed_data - Elapsed time (s): 0.67
+2021-05-24 18:36:32,516 - INFO - Job complete!
+
+2021-05-24 18:43:03,146 - INFO - Starting process ...
+2021-05-24 18:43:04,398 - INFO - DataFrame has 1,612,298 rows and includes data for 129,629 members.
+2021-05-24 18:43:04,399 - INFO - Calling load_and_prepare_clean_data - Elapsed time (s): 1.25
+2021-05-24 18:43:06,926 - INFO - Calling remove_redemptions_without_purchase - Elapsed time (s): 2.53
+2021-05-24 18:43:06,968 - INFO - Calling create_basic_voucher_cols - Elapsed time (s): 0.04
+2021-05-24 18:43:39,000 - INFO - Calling create_voucher_cumsum_col - Elapsed time (s): 32.03
+2021-05-24 18:43:39,276 - INFO - Calling shift_and_drop_redemptions - Elapsed time (s): 0.27
+2021-05-24 18:43:59,499 - INFO - Calling calculate_interval_activation_to_next_purchase - Elapsed time (s): 20.22
+2021-05-24 18:44:35,418 - INFO - Calling calculate_purchase_interval - Elapsed time (s): 35.91
+2021-05-24 18:44:35,478 - INFO - Calling flag_purchases_depending_on_vouchers - Elapsed time (s): 0.06
+2021-05-24 18:44:35,496 - INFO - Calling calculate_discount_pct - Elapsed time (s): 0.01
+2021-05-24 18:44:35,599 - INFO - Calling flag_purchases_depending_on_discounts - Elapsed time (s): 0.10
+2021-05-24 18:44:36,239 - INFO - Calling save_transformed_data - Elapsed time (s): 0.64
+2021-05-24 18:44:36,240 - INFO - Job complete!
+

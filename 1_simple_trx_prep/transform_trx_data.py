@@ -67,6 +67,7 @@ def load_and_prepare_clean_data(path: Union[Path, str]) -> pd.DataFrame:
         f"DataFrame has {len(df):,.0f} rows "
         f"and includes data for {df['member'].nunique():,.0f} members."
     )
+
     return df
 
 
@@ -244,7 +245,7 @@ def flag_purchases_depending_on_vouchers(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @logging_runtime
-def calculate_discount_pct(df) -> pd.DataFrame:
+def calculate_discount_pct(df: pd.DataFrame) -> pd.DataFrame:
     """Caclulate a column "discount_pct" denoting the relative
     value of discounts. This value will be used to control for a
     threshold when setting a discount flag in the next step. (Note
@@ -258,7 +259,7 @@ def calculate_discount_pct(df) -> pd.DataFrame:
 
 @logging_runtime
 def flag_purchases_depending_on_discounts(
-    df: pd.DataFrame, threshold_pct: float = 0.1
+    df: pd.DataFrame, threshold_pct: float
 ) -> pd.DataFrame:
     """Create a boolean columns to classify purchases having a
     discount whose relative value to the gross transaction price
@@ -273,7 +274,7 @@ def flag_purchases_depending_on_discounts(
 
 
 @logging_runtime
-def save_transformed_data(df, path: Union[Path, str]):
+def save_transformed_data(df: pd.DataFrame, path: Union[Path, str]):
     # df = df.reset_index(drop=True)
     df.to_parquet(path)
 
@@ -295,7 +296,7 @@ def main(
     df = calculate_purchase_interval(df)
     df = flag_purchases_depending_on_vouchers(df)
     df = calculate_discount_pct(df)
-    df = flag_purchases_depending_on_discounts(df)
+    df = flag_purchases_depending_on_discounts(df, threshold_pct)
     save_transformed_data(df, path_out)
     logger.info("Job complete!\n")
 
